@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Agent Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        .status {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            backdrop-filter: blur(10px);
+        }
+        
+        .button {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            border-radius: 25px;
+            padding: 15px 30px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        
+        .button:active {
+            transform: translateY(0);
+        }
+        
+        .recording {
+            background: #ff4757 !important;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .speaking {
+            background: #2ed573 !important;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        
+        .log {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: left;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .audio-level {
+            width: 100%;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .audio-level-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #2ed573, #ffa502, #ff4757);
+            width: 0%;
+            transition: width 0.1s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Voice Agent Test</h1>
+        
+        <div class="status">
+            <h3>Connection Status</h3>
+            <p id="connectionStatus">Initializing...</p>
+            <p id="androidStatus">Checking Android integration...</p>
+        </div>
+        
+        <div class="audio-level">
+            <div class="audio-level-bar" id="audioLevelBar"></div>
+        </div>
+        
+        <button class="button" id="startBtn" onclick="startConversation()">Start Conversation</button>
+        <button class="button" id="stopBtn" onclick="stopConversation()" disabled>Stop Conversation</button>
+        <button class="button" onclick="simulateAgentSpeech()">Simulate Agent Speech</button>
+        <button class="button" onclick="testEchoFeedback()">Test Echo Detection</button>
+        
+        <div class="status">
+            <h3>Current State</h3>
+            <p id="currentState">Ready</p>
+            <p id="audioInfo">Audio: Not initialized</p>
+        </div>
+        
+        <div class="log" id="logContainer">
+            <div>Voice Agent Test Page Loaded</div>
+        </div>
+    </div>
+
+    <script>
+        let mediaStream = null;
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let isRecording = false;
+        let isAgentSpeaking = false;
+        let audioLevelInterval = null;
+        
+        // Check for Android conversation control
+        function checkAndroidIntegration() {
+            if (typeof ConversationControl !== 'undefined') {
+                log('✅ Android ConversationControl available');
+                document.getElementById('androidStatus').textContent = 'Android integration: Connected';
+                ConversationControl.logConversationEvent('Test page loaded');
+                ConversationControl.requestOptimalAudioSettings();
+                return true;
+            } else {
+                log('⚠️ Android ConversationControl not available - browser mode');
+                document.getElementById('androidStatus').textContent = 'Android integration: Not available (browser mode)';
+                return false;
+            }
+        }
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logContainer = document.getElementById('logContainer');
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(message);
+        }
+        
+        async function startConversation() {
+            try {
+                log('🎤 Requesting microphone access...');
+                document.getElementById('currentState').textContent = 'Requesting microphone...';
+                
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 16000
+                    }
+                });
+                
+                log('✅ Microphone access granted');
+                document.getElementById('audioInfo').textContent = 'Audio: Microphone active';
+                
+                // Setup audio analysis
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                microphone = audioContext.createMediaStreamSource(mediaStream);
+                
+                analyser.fftSize = 256;
+                microphone.connect(analyser);
+                
+                isRecording = true;
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('startBtn').classList.add('recording');
+                document.getElementById('currentState').textContent = 'Recording - Ready for conversation';
+                
+                startAudioLevelMonitoring();
+                log('🔊 Audio monitoring started');
+                
+                // Notify Android
+                if (typeof ConversationControl !== 'undefined') {
+                    ConversationControl.logConversationEvent('Conversation started');
+                }
+                
+            } catch (error) {
+                log(`❌ Error starting conversation: ${error.message}`);
+                document.getElementById('currentState').textContent = 'Error: ' + error.message;
+                document.getElementById('connectionStatus').textContent = 'Failed to access microphone';
+            }
+        }
+        
+        function stopConversation() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            if (audioLevelInterval) {
+                clearInterval(audioLevelInterval);
+                audioLevelInterval = null;
+            }
+            
+            isRecording = false;
+            isAgentSpeaking = false;
+            
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('startBtn').classList.remove('recording');
+            document.getElementById('currentState').textContent = 'Stopped';
+            document.getElementById('audioInfo').textContent = 'Audio: Not active';
+            document.getElementById('audioLevelBar').style.width = '0%';
+            
+            log('🛑 Conversation stopped');
+            
+            // Notify Android
+            if (typeof ConversationControl !== 'undefined') {
+                ConversationControl.logConversationEvent('Conversation stopped');
+            }
+        }
+        
+        function startAudioLevelMonitoring() {
+            if (!analyser) return;
+            
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            audioLevelInterval = setInterval(() => {
+                analyser.getByteFrequencyData(dataArray);
+                
+                // Calculate average audio level
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    sum += dataArray[i];
+                }
+                const average = sum / bufferLength;
+                const level = (average / 255) * 100;
+                
+                // Update visual indicator
+                document.getElementById('audioLevelBar').style.width = level + '%';
+                
+                // Log significant audio events
+                if (level > 30) {
+                    log(`🎵 Audio level: ${level.toFixed(1)}%`);
+                }
+                
+                // Detect potential feedback during agent speech
+                if (isAgentSpeaking && level > 50) {
+                    log('⚠️ Potential audio feedback detected!');
+                    if (typeof ConversationControl !== 'undefined') {
+                        ConversationControl.reportAudioFeedback('high');
+                    }
+                }
+                
+            }, 100); // 10 FPS monitoring
+        }
+        
+        function simulateAgentSpeech() {
+            if (!isRecording) {
+                log('⚠️ Start conversation first');
+                return;
+            }
+            
+            isAgentSpeaking = true;
+            document.getElementById('currentState').textContent = 'Agent is speaking...';
+            log('🤖 Simulating agent speech - reducing mic sensitivity');
+            
+            // Notify Android
+            if (typeof ConversationControl !== 'undefined') {
+                ConversationControl.onAgentStartSpeaking();
+            }
+            
+            // Simulate agent speech for 3 seconds
+            setTimeout(() => {
+                isAgentSpeaking = false;
+                document.getElementById('currentState').textContent = 'Listening for user input';
+                log('🤖 Agent finished speaking - restoring mic sensitivity');
+                
+                // Notify Android
+                if (typeof ConversationControl !== 'undefined') {
+                    ConversationControl.onAgentStopSpeaking();
+                }
+            }, 3000);
+        }
+        
+        function testEchoFeedback() {
+            log('🔄 Testing echo feedback detection...');
+            
+            // Simulate high audio level during agent speech
+            isAgentSpeaking = true;
+            
+            // Trigger multiple feedback detections
+            for (let i = 0; i < 3; i++) {
+                setTimeout(() => {
+                    if (typeof ConversationControl !== 'undefined') {
+                        ConversationControl.reportAudioFeedback('high');
+                    }
+                    log(`🔊 Feedback test ${i + 1}/3`);
+                }, i * 500);
+            }
+            
+            setTimeout(() => {
+                isAgentSpeaking = false;
+                log('✅ Echo feedback test completed');
+            }, 2000);
+        }
+        
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            log('📱 Initializing voice agent test page...');
+            document.getElementById('connectionStatus').textContent = 'Page loaded successfully';
+            
+            const hasAndroid = checkAndroidIntegration();
+            
+            // Check for getUserMedia support
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                log('✅ WebRTC getUserMedia supported');
+                document.getElementById('connectionStatus').textContent = 'Ready for voice conversation';
+            } else {
+                log('❌ WebRTC not supported in this browser');
+                document.getElementById('connectionStatus').textContent = 'WebRTC not supported';
+                document.getElementById('startBtn').disabled = true;
+            }
+        });
+        
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            stopConversation();
+        });
+        
+        // Make functions available globally for Android integration
+        window.AndroidVoiceAgent = {
+            startConversation,
+            stopConversation,
+            simulateAgentSpeech,
+            testEchoFeedback,
+            log
+        };
+        
+    </script>
+</body>
+</html>
