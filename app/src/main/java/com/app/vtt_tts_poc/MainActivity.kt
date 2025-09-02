@@ -80,6 +80,10 @@ class MainActivity : ComponentActivity() {
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 // WebRTC and audio optimization settings
                 cacheMode = WebSettings.LOAD_DEFAULT
+                // Zoom settings
+                setSupportZoom(true)
+                setBuiltInZoomControls(true)
+                setDisplayZoomControls(false)
 //                userAgentString = buildOptimalUserAgent()
             }
             webChromeClient = GaiaWebChromeClient()
