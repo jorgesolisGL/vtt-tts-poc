@@ -26,7 +26,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "GaiaWebView"
-        private const val GAIA_URL = "https://admin.gaia.com/vtt-tts"
+        private const val GAIA_URL = "https://admin.gaia.com/stt-tts"
     }
 
     private lateinit var webView: WebView
